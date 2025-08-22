@@ -21,7 +21,7 @@ jobs:
       PARQUET_PATH: ofrecimientos.parquet
       EVENT_TYPE: ofrecimientos-changed
       TARGET_OWNER: ofrecimientos-docentes
-      TARGET_REPO: ofrecimientos-docentes
+      TARGET_REPO: etl-ofrecimientos-docentes
 
     steps:
       - name: Checkout
