@@ -44,7 +44,7 @@ jobs:
         run: |
           python - << 'PY'
           import sys
-          from main import main
+          from verify import main
           if __name__ == "__main__":
               main()
           PY
