@@ -22,8 +22,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Download observaciones artifact
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v3
         with:
+          github_token: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          repo: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          workflow: scraper-transform.yml
+          run_id: ${{ github.event.client_payload.origin_run_id }}
           name: observaciones
           path: ai/
 
