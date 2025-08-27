@@ -11,32 +11,29 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Obtener payload
-        id: payload
-        run: |
-          echo "File path: ${{ github.event.client_payload.file_path }}"
-          echo "::set-output name=path::${{ github.event.client_payload.file_path }}"
+      - name: Download observaciones artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: observaciones
+          path: ai/
 
       - name: Procesar observaciones con AI
-        run: python ai/observaciones.py --input "${{ steps.payload.outputs.path }}"
+        run: python ai/observaciones.py --input ai/observaciones.csv
 
-      - name: Commit archivos procesados (opcional)
+      - name: Commit resultados
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ai/output.csv ai/observaciones_procesadas.csv
-          git commit -m "AI processed observaciones (${{ github.run_id }})" || echo "No hay cambios para commitear"
-          git push || echo "Push falló (ok si no hay cambios)"
+          git commit -m "Procesamiento AI (${{ github.run_id }})" || echo "Sin cambios"
+          git push || true
