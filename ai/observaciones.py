@@ -1,17 +1,14 @@
-from pathlib import Path
+import argparse
 import polars as pl
+from pathlib import Path
 from google import genai
 
-INPUT_PATH = Path("ai/observaciones.csv")
-OUTPUT_PATH = Path("ai/output.csv")
-PROCESADAS_PATH = Path("ai/observaciones_procesadas.csv")
-PROMPT = (
-    "Corrige la ortografía, puntuación, mayúsculas/minúsculas, espacios y estructura de la observación "
-    "sin alterar su contenido. Devuelve solo el texto corregido."
-)
+INPUT_CSV = None
+OUTPUT_CSV = Path("ai/output.csv")
+PROCESADAS_CSV = Path("ai/observaciones_procesadas.csv")
 
 
-def procesar_con_gemini(text: str) -> str:
+def procesar_texto(text: str) -> str:
     client = genai.Client()
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -23,38 +20,32 @@ def procesar_con_gemini(text: str) -> str:
     return response.text.strip()
 
 
-def main():
-    if not INPUT_PATH.exists():
-        raise FileNotFoundError(f"No se encontró: {INPUT_PATH}")
-
-    df = pl.read_csv(INPUT_PATH)
-
-    # Aplica corrección a cada observación
+def main(input_path: str):
+    df = pl.read_csv(input_path)
     df = df.with_columns(
-        [
-            pl.col("observacion_original")
-            .apply(lambda x: procesar_con_gemini(x))
-            .alias("observaciones")
-        ]
+        pl.col("observacion_original").apply(procesar_texto).alias("observaciones")
     )
+    df_out = df.select(["id", "observaciones"])
+    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+    df_out.write_csv(OUTPUT_CSV)
 
-    # Mantener la estructura: id, observaciones
-    df.select(["id", "observaciones"]).write_csv(OUTPUT_PATH)
-
-    print(f"Output generado: {OUTPUT_PATH}")
-
-    # Actualizar observaciones_procesadas.csv (concatenar o reemplazar del día)
-    df_processed = df.select(["id", "observaciones"])
-    df_proc_old = (
-        pl.read_csv(PROCESADAS_PATH)
-        if PROCESADAS_PATH.exists()
-        else pl.DataFrame(columns=df_processed.columns)
+    df_proc = (
+        pl.read_csv(PROCESADAS_CSV)
+        if PROCESADAS_CSV.exists()
+        else pl.DataFrame(df_out.schema)
     )
-    df_final = pl.concat([df_proc_old, df_processed]).unique(subset=["observaciones"])
-    df_final.write_csv(PROCESADAS_PATH)
+    df_all = pl.concat([df_proc, df_out]).unique(subset=["observaciones"])
+    df_all.write_csv(PROCESADAS_CSV)
 
-    print(f"Observaciones procesadas consolidadas en: {PROCESADAS_PATH}")
+    print(f"Salida guardada en: {OUTPUT_CSV}")
+    print(f"Procesadas consolidadas en: {PROCESADAS_CSV}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input", type=str, required=True, help="Ruta al CSV de observaciones"
+    )
+    args = parser.parse_args()
+    INPUT_CSV = args.input
+    main(INPUT_CSV)
