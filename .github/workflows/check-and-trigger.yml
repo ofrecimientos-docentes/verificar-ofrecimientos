@@ -18,7 +18,7 @@ jobs:
     env:
       STATE_FILE: .state_ofrec_hash
       PARQUET_PATH: ofrecimientos.parquet
-      EVENT_TYPE: start_etl
+      EVENT_TYPE: etl-ofrecimientos
       TARGET_OWNER: ofrecimientos-docentes
       TARGET_REPO: etl-ofrecimientos-docentes
 
