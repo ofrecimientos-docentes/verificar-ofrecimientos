@@ -1,16 +1,13 @@
 name: Procesar observaciones con AI
 
 on:
-  workflow_dispatch:
-    inputs:
-      s3_key: { type: string, required: true }
-      origin_run_id: { type: string, required: true }
+  repository_dispatch:
+    types: [run_ai]
 
 jobs:
   ai_process:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -25,29 +22,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt  # incluye google-genai, polars
+          pip install -r requirements.txt
 
-      - name: Configure AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::<acct>:role/github-oidc-ai
-          aws-region: sa-east-1
-
-      - name: Descargar observaciones desde S3
-        run: aws s3 cp s3://etl-exchange/${{ inputs.s3_key }} ai/observaciones.csv
+      - name: Obtener payload
+        id: payload
+        run: |
+          echo "File path: ${{ github.event.client_payload.file_path }}"
+          echo "::set-output name=path::${{ github.event.client_payload.file_path }}"
 
       - name: Procesar observaciones con AI
-        run: python ai/observaciones.py
+        run: python ai/observaciones.py --input "${{ steps.payload.outputs.path }}"
 
-      - name: Subir archivos procesados a S3
+      - name: Commit archivos procesados (opcional)
         run: |
-          aws s3 cp ai/output.csv s3://etl-exchange/ai_out/${{ github.run_id }}/output.csv
-          aws s3 cp ai/observaciones_procesadas.csv s3://etl-exchange/ai_out/${{ github.run_id }}/observaciones_procesadas.csv
-
-      - name: Notificar al repo privado
-        env:
-          GH_TOKEN: ${{ secrets.PAT_OR_APP_TOKEN }}
-        run: |
-          gh api repos/ORG/PRIVATE_REPO/dispatches \
-            -f event_type=ai_done \
-            -F client_payload='{"ai_run_id":"${{ github.run_id }}","origin_run_id":"${{ inputs.origin_run_id }}"}'
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ai/output.csv ai/observaciones_procesadas.csv
+          git commit -m "AI processed observaciones (${{ github.run_id }})" || echo "No hay cambios para commitear"
+          git push || echo "Push falló (ok si no hay cambios)"
