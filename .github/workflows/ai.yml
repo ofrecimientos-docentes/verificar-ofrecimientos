@@ -8,36 +8,30 @@ jobs:
   ai_process:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout public repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - run: |
+      - name: Install dependencies
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download observaciones artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.PUBLIC_REPO_TOKEN }}
-          repo: ofrecimientos-docentes/etl-ofrecimientos-docentes
-          workflow: scraper-transform.yml
-          run_id: ${{ github.event.client_payload.origin_run_id }}
-          name: observaciones
-          path: ai/
-
       - name: Procesar observaciones con AI
-        run: python ai/observaciones.py --input ai/observaciones.csv
+        run: python ai/observaciones.py --input "data/observaciones.csv"
 
-      - name: Commit resultados
+      - name: Commit resultados procesados
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
           git add ai/output.csv ai/observaciones_procesadas.csv
-          git commit -m "Procesamiento AI (${{ github.run_id }})" || echo "Sin cambios"
-          git push || true
+          git commit -m "Resultados AI ($GITHUB_RUN_ID)" || echo "No changes"
+          git push
