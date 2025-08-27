@@ -2,7 +2,7 @@ name: Check cambios ofrecimientos
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # cada 5 minutos (UTC)
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -13,12 +13,12 @@ jobs:
   check-and-trigger:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # necesario para commitear el hash de estado
+      contents: write
 
     env:
       STATE_FILE: .state_ofrec_hash
       PARQUET_PATH: ofrecimientos.parquet
-      EVENT_TYPE: start_etl # <-- cambia a "start_etl" para coordinar con el repo privado
+      EVENT_TYPE: start_etl
       TARGET_OWNER: ofrecimientos-docentes
       TARGET_REPO: etl-ofrecimientos-docentes
 
@@ -45,14 +45,13 @@ jobs:
         id: hash
         run: |
           if [ ! -f "${PARQUET_PATH}" ]; then
-            echo "Parquet no encontrado: ${PARQUET_PATH}; no hay cambios."
             echo "curr_hash=" >> $GITHUB_OUTPUT
             exit 0
           fi
           CURR_HASH=$(sha256sum "${PARQUET_PATH}" | awk '{print $1}')
           echo "curr_hash=${CURR_HASH}" >> $GITHUB_OUTPUT
 
-      - name: Load previous hash (if any)
+      - name: Load previous hash
         id: prev
         run: |
           if [ -f "${STATE_FILE}" ]; then
@@ -68,7 +67,6 @@ jobs:
           if [ -n "${{ steps.hash.outputs.curr_hash }}" ] && \
              [ "${{ steps.hash.outputs.curr_hash }}" = "${{ steps.prev.outputs.prev_hash }}" ]; then
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Sin cambios en el Parquet."
           else
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "${{ steps.hash.outputs.curr_hash }}" > "${STATE_FILE}"
@@ -76,19 +74,16 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add "${STATE_FILE}" || true
             git commit -m "update ofrecimientos hash" || echo "Nada para commitear"
-            git push || echo "No se pudo pushear (ok si no hay cambios reales)"
+            git push || echo "No se pudo pushear"
           fi
 
-      - name: Trigger private repo via repository_dispatch
+      - name: Trigger ETL repo
         if: steps.detect.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          echo "Disparando evento $EVENT_TYPE a ${TARGET_OWNER}/${TARGET_REPO}"
-          curl -sS --fail-with-body --retry 3 \
-            -X POST \
+          curl -sS -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/${TARGET_OWNER}/${TARGET_REPO}/dispatches \
             -d "{\"event_type\":\"${EVENT_TYPE}\",\"client_payload\":{\"parquet_hash\":\"${{ steps.hash.outputs.curr_hash }}\"}}"
