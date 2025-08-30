@@ -75,7 +75,7 @@ jobs:
       - name: Checkout repo privado (dev)
         uses: actions/checkout@v4
         with:
-          repository: ofrecimientos-docentes/ofrecimientos-docentes-etl # 👈 privado
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes # 👈 privado
           token: ${{ secrets.PRIVATE_REPO_TOKEN }} # 👈 secret en el repo público
           ref: dev
           fetch-depth: 0
@@ -99,7 +99,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          repository: ofrecimientos-docentes/ofrecimientos-docentes-etl
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           event-type: ai-observaciones-final
           client-payload: |
             {
