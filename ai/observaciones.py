@@ -5,6 +5,9 @@ import polars as pl
 from pydantic import BaseModel
 from google import genai
 from google.genai import types as genai_types
+from dotenv import load_dotenv
+
+load_dotenv()
 
 MODEL_NAME = "gemini-2.5-flash"
 MAX_ATTEMPTS = 3
@@ -83,7 +86,7 @@ def call_batch(client: genai.Client, batch: List[dict]) -> List[Correction]:
 
 def main():
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    df = load_input()
+    df = load_input()  # contiene id, observaciones
     records = df.to_dicts()
     pending = records[:]
     results: Dict[int, str] = {}
@@ -111,13 +114,20 @@ def main():
 
     if not results:
         raise RuntimeError("No se generaron correcciones.")
+
+    # DataFrame con correcciones
+    df_results = pl.DataFrame(
+        {"id": list(results.keys()), "observaciones_final": list(results.values())}
+    ).with_columns(pl.col("id").cast(pl.Int64))
+
+    # Unir con las observaciones originales
     out = (
-        pl.DataFrame(
-            {"id": list(results.keys()), "observaciones_final": list(results.values())}
-        )
-        .with_columns(pl.col("id").cast(pl.Int64))
+        df.rename({"observaciones": "observaciones_original"})
+        .join(df_results, on="id", how="inner")
+        .select(["id", "observaciones_original", "observaciones_final"])
         .sort("id")
     )
+
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     out.write_csv(OUTPUT_CSV)
     print(f"✅ {OUTPUT_CSV} con {out.height} filas")

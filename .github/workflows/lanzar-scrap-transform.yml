@@ -1,33 +1,30 @@
-name: Lanzar ETL (privado)
+name: Lanzar scrap-transform (dispatch)
 
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: "Rama del repo privado"
+      reason:
+        description: "Motivo del disparo"
         required: false
-        default: "dev"
-  push:
-    branches: [dev]
-    # Evita loop cuando el privado sube data/observaciones.csv
-    paths-ignore:
-      - "data/observaciones.csv"
+        default: "manual"
 
 jobs:
-  dispatch-start-scrap:
+  dispatch:
     runs-on: ubuntu-latest
-    concurrency:
-      group: lanzar-start-scrap-${{ github.ref_name }}
-      cancel-in-progress: false
-
+    permissions:
+      contents: read
     steps:
-      - name: Disparar al repo privado por repository_dispatch (type=start-scrap)
+      - name: Repository Dispatch to private repo
         uses: peter-evans/repository-dispatch@v3
         with:
+          # PAT con permiso repo (o public_repo si fuera público)
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
-          event-type: start-scrap
-          client-payload: |
+          repository: tu-org/etl-ofrecimientos-docentes
+          event-type: scrap-transform-publicar-observaciones
+          client-payload: >-
             {
-              "branch": "${{ github.event.inputs.branch || github.ref_name || 'dev' }}"
+              "ref": "refs/heads/dev",
+              "reason": "${{ github.event.inputs.reason }}",
+              "caller_repo": "${{ github.repository }}",
+              "caller_sha": "${{ github.sha }}"
             }
