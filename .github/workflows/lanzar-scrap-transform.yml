@@ -7,12 +7,6 @@ on:
         description: "Rama del repo privado"
         required: false
         default: "dev"
-  push:
-    branches: [dev]
-    # Evita loop: cuando el privado empuja data/observaciones.csv a este repo,
-    # no queremos relanzar el ETL automáticamente.
-    paths-ignore:
-      - "data/observaciones.csv"
 
 jobs:
   dispatch-start-scrap:
@@ -25,7 +19,7 @@ jobs:
       - name: Disparar al repo privado por repository_dispatch (type=start-scrap)
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }} # PAT con acceso al repo privado
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           event-type: start-scrap
           client-payload: |
