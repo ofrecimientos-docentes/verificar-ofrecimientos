@@ -3,8 +3,8 @@ name: Mostrar observaciones (dev)
 on:
   push:
     branches: [dev]
-    paths:
-      - "observaciones.csv"
+    # paths:
+    #   - "observaciones.csv"
   repository_dispatch:
     types: [observaciones-updated]
   workflow_dispatch: {}
