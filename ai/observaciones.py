@@ -1,11 +1,8 @@
-# ai/observaciones.py
-from __future__ import annotations
-
 import os
 import time
 import json
-from typing import List, Dict, Tuple
-from dataclasses import dataclass
+from typing import Dict
+from pathlib import Path
 
 import polars as pl
 
@@ -14,6 +11,9 @@ import polars as pl
 from pydantic import BaseModel
 from google import genai
 from google.genai import types as genai_types
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ======== Config =========
@@ -22,10 +22,8 @@ MAX_ATTEMPTS = 3  # intentos por batch
 RETRY_SECONDS = 10  # pausa entre intentos
 BATCH_SIZE = 100  # tamaño de lote (ajustable)
 
-INPUT_CSV = "observaciones.csv"  # generado previamente (id, observaciones)
-OUTPUT_CSV = (
-    "observaciones_final.csv"  # id, observaciones_original, observaciones_final
-)
+INPUT_CSV = "data/observaciones.csv"
+OUTPUT_CSV = "data/observaciones_final.csv"
 
 
 # ======== Esquema de salida estructurada ========
@@ -199,6 +197,7 @@ def process_all(df_in: pl.DataFrame) -> pl.DataFrame:
 
 
 def main():
+    Path("data").mkdir(parents=True, exist_ok=True)
     df_in = load_input()
     df_out = process_all(df_in)
     df_out.write_csv(OUTPUT_CSV)

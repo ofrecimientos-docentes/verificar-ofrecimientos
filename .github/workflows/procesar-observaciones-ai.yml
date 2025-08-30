@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev]
     paths:
-      - "observaciones.csv"
+      - "data/observaciones.csv"
   repository_dispatch:
     types: [observaciones-updated]
   workflow_dispatch: {}
@@ -39,22 +39,22 @@ jobs:
         run: |
           python ai/observaciones.py
 
-      - name: Commit & push observaciones_final.csv (si cambió)
+      - name: Commit & push data/observaciones_final.csv (si cambió)
         run: |
           set -e
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
-          if [ -f "observaciones_final.csv" ]; then
-            git add observaciones_final.csv
-            git diff --cached --quiet && echo "No changes to commit" || git commit -m "observaciones_final.csv generado (AI)"
+          if [ -f "data/observaciones_final.csv" ]; then
+            git add data/observaciones_final.csv
+            git diff --cached --quiet && echo "No changes to commit" || git commit -m "data/observaciones_final.csv generado (AI)"
             git push origin dev
           else
-            echo "No se generó observaciones_final.csv" && exit 1
+            echo "No se generó data/observaciones_final.csv" && exit 1
           fi
 
       - name: Subir artifact (opcional)
         uses: actions/upload-artifact@v4
         with:
           name: observaciones_final
-          path: observaciones_final.csv
+          path: data/observaciones_final.csv
