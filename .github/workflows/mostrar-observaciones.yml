@@ -1,13 +1,11 @@
 name: Mostrar observaciones (dev)
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [dev]
-    # paths:
-    #   - "observaciones.csv"
   repository_dispatch:
     types: [observaciones-updated]
-  workflow_dispatch: {}
 
 jobs:
   mostrar:
