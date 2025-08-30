@@ -4,16 +4,19 @@ on:
   push:
     branches: [dev]
     paths:
-      - "observaciones.csv" # corre cuando se actualiza el CSV base
-      - "ai/observaciones.py" # o cuando cambia el script
-  workflow_dispatch: {} # permite ejecución manual
+      - "observaciones.csv"
+  repository_dispatch:
+    types: [observaciones-updated]
+  workflow_dispatch: {}
 
 permissions:
-  contents: write # para commitear observaciones_final.csv
+  contents: write # para poder commitear el CSV generado
 
 jobs:
   procesar:
     runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout repo público (dev)
@@ -23,45 +26,35 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: |
-            ai/observaciones.py
 
-      - name: Install deps
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install polars pydantic "google-genai>=0.3.0"
+          pip install google-genai polars pydantic
 
-      - name: Procesar observaciones con Gemini
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Ejecutar AI de observaciones (Gemini)
         run: |
           python ai/observaciones.py
 
-      - name: Mostrar resumen
+      - name: Commit & push observaciones_final.csv (si cambió)
         run: |
-          python - <<'PY'
-          import polars as pl, os
-          f = "observaciones_final.csv"
-          if os.path.exists(f):
-              df = pl.read_csv(f)
-              print(f"✅ observaciones_final.csv: {df.height} filas")
-              print("▶ Primeras 5 filas:")
-              print(df.head(5))
-          else:
-              print("❌ No se generó observaciones_final.csv")
-          PY
+          set -e
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
 
-      - name: Commit & push resultado (dev)
-        run: |
           if [ -f "observaciones_final.csv" ]; then
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
             git add observaciones_final.csv
-            git commit -m "AI: actualizar observaciones_final.csv (dev)" || echo "No changes"
+            git diff --cached --quiet && echo "No changes to commit" || git commit -m "observaciones_final.csv generado (AI)"
             git push origin dev
+          else
+            echo "No se generó observaciones_final.csv" && exit 1
           fi
+
+      - name: Subir artifact (opcional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: observaciones_final
+          path: observaciones_final.csv

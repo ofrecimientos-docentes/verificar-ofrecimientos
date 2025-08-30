@@ -1,193 +1,212 @@
 # ai/observaciones.py
+from __future__ import annotations
+
 import os
-import json
 import time
+import json
 from typing import List, Dict, Tuple
+from dataclasses import dataclass
 
 import polars as pl
+
+# SDK oficial Google GenAI (no confundir con librerías legacy)
+# pip install google-genai polars pydantic
 from pydantic import BaseModel
 from google import genai
+from google.genai import types as genai_types
 
 
 # ======== Config =========
-MODEL_NAME = "gemini-2.5-flash"
-INPUT_CSV = "observaciones.csv"
-OUTPUT_CSV = "observaciones_final.csv"
-BATCH_SIZE = 100  # tamaño de lote; ajusta si lo necesitás
-MAX_ATTEMPTS = 3
-RETRY_SLEEP_SEC = 10
+MODEL_NAME = "gemini-2.5-flash"  # modelo pedido
+MAX_ATTEMPTS = 3  # intentos por batch
+RETRY_SECONDS = 10  # pausa entre intentos
+BATCH_SIZE = 100  # tamaño de lote (ajustable)
+
+INPUT_CSV = "observaciones.csv"  # generado previamente (id, observaciones)
+OUTPUT_CSV = (
+    "observaciones_final.csv"  # id, observaciones_original, observaciones_final
+)
 
 
-class ObservacionFix(BaseModel):
+# ======== Esquema de salida estructurada ========
+class Correction(BaseModel):
     id: int
     observaciones_final: str
 
 
-def _mk_client() -> genai.Client:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Falta la variable de entorno GEMINI_API_KEY.")
-    return genai.Client(api_key=api_key)
+# Para evitar problemas con modelos anidados, usamos directamente list[Correction] como schema
+# (la SDK soporta response_schema con Pydantic / enums / JSON schema).
+# https://ai.google.dev/gemini-api/docs/structured-output
+# https://github.com/googleapis/python-genai
+ResponseSchema = list[Correction]
 
 
-def _build_contents(batch_items: List[Tuple[int, str]]) -> str:
-    """Construye el prompt con instrucciones y payload JSON."""
-    entrada = [{"id": i, "observaciones_original": t} for i, t in batch_items]
-    prompt = (
-        "Corrige ortografía, gramática, tildes, mayúsculas/minúsculas, espacios y signos de puntuación "
-        "en español para cada observación, sin perder información ni cambiar el significado. "
-        "No agregues ni elimines datos. Mantén números, fechas y nombres propios cuando existan.\n\n"
-        "Devuelve una lista JSON que cumpla exactamente con el esquema, un objeto por cada item de entrada. "
-        "Respeta los ids.\n\n"
-        "ENTRADA:\n"
-        f"{json.dumps(entrada, ensure_ascii=False)}\n\n"
-        "ESQUEMA DE SALIDA (JSON): lista de objetos con campos:\n"
-        "- id: entero (copiar desde la entrada)\n"
-        "- observaciones_final: string (texto corregido)\n"
+def load_input() -> pl.DataFrame:
+    df = pl.read_csv(INPUT_CSV)
+    # Normalizamos nombres esperados
+    if "observaciones" not in df.columns or "id" not in df.columns:
+        raise ValueError("Se espera un CSV con columnas: id, observaciones")
+    return df.select(["id", "observaciones"])
+
+
+def chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def build_prompt() -> str:
+    # Instrucciones en español, explícitas y concisas:
+    return (
+        "Tarea: Corregí ortografía, mayúsculas/minúsculas, espacios y signos de puntuación "
+        "de cada observación SIN perder información ni resumir. No agregues contenido. "
+        "No cambies el significado. Conservá números, nombres propios y detalles.\n\n"
+        "Devolvé SOLO JSON válido ajustado al esquema (lista de objetos), "
+        "sin texto adicional."
     )
-    return prompt
 
 
-def _call_gemini(client: genai.Client, items: List[Tuple[int, str]]) -> Dict[int, str]:
+def call_gemini_batch(
+    client: genai.Client,
+    batch_items: list[dict],
+) -> list[Correction]:
     """
-    Llama al modelo con response_schema tipado (pydantic) y devuelve {id: observaciones_final}.
-    Puede devolver subconjunto si el modelo responde parcialmente.
+    Llama al modelo para un batch de entradas.
+    batch_items: [{'id': int, 'observaciones': '...'}, ...]
+    Retorna lista de Correction (id, observaciones_final).
     """
-    if not items:
-        return {}
+    prompt = build_prompt()
 
-    prompt = _build_contents(items)
-    # Respuesta estructurada: application/json + response_schema
-    response = client.models.generate_content(
+    # Contenido: instrucciones + datos de entrada
+    contents = [
+        prompt,
+        "Entradas (lista de objetos con 'id' y 'observaciones'):",
+        json.dumps(batch_items, ensure_ascii=False),
+        "Salida esperada: lista JSON de objetos {id: int, observaciones_final: string}.",
+    ]
+
+    # Configuramos salida JSON + schema (lista de Correction)
+    cfg = genai_types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=ResponseSchema,  # list[Correction]
+        # Opcional: temperature baja para consistencia
+        temperature=0.2,
+    )
+
+    resp = client.models.generate_content(
         model=MODEL_NAME,
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": List[ObservacionFix],
-        },
+        contents=contents,
+        config=cfg,
     )
 
-    out_map: Dict[int, str] = {}
+    # La SDK expone .parsed cuando se usa response_schema
+    # https://googleapis.github.io/python-genai/  (ver GenerateContentResponse)
     try:
-        parsed: List[ObservacionFix] = response.parsed  # objetos pydantic
-        for obj in parsed:
-            out_map[obj.id] = obj.observaciones_final
+        parsed = resp.parsed  # -> list[Correction] si el schema se respetó
+        if isinstance(parsed, list):
+            return parsed
     except Exception:
-        # Si no pudo parsear, intentar parsear como JSON raw (por si vino texto)
-        try:
-            data = json.loads(response.text)
-            if isinstance(data, list):
-                for obj in data:
-                    if (
-                        isinstance(obj, dict)
-                        and "id" in obj
-                        and "observaciones_final" in obj
-                    ):
-                        out_map[int(obj["id"])] = str(obj["observaciones_final"])
-        except Exception:
-            # Si tampoco, devolver vacío (se reintenta en el caller)
-            return {}
+        pass
 
-    return out_map
+    # Fallback: intentar parsear JSON manualmente desde .text
+    text = (resp.text or "").strip()
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+        # data esperado: lista de dicts con id y observaciones_final
+        out: list[Correction] = []
+        if isinstance(data, list):
+            for item in data:
+                if (
+                    isinstance(item, dict)
+                    and "id" in item
+                    and "observaciones_final" in item
+                ):
+                    out.append(Correction(**item))
+        return out
+    except Exception:
+        return []
 
 
-def _retry_batch(
-    client: genai.Client, batch_items: List[Tuple[int, str]]
-) -> Dict[int, str]:
+def process_all(df_in: pl.DataFrame) -> pl.DataFrame:
     """
-    Reintenta hasta MAX_ATTEMPTS: si la respuesta es parcial, vuelve a consultar
-    únicamente por los ids faltantes, con 10s entre intentos.
+    Procesa todas las observaciones con reintentos parciales.
+    Devuelve DataFrame: id, observaciones_original, observaciones_final
+    SOLO con filas efectivamente procesadas por la IA.
     """
-    remaining = list(batch_items)
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+    records = df_in.to_dicts()  # [{'id':..., 'observaciones':...}, ...]
+    pending = records[:]  # observaciones aún no corregidas
     results: Dict[int, str] = {}
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        got = _call_gemini(client, remaining)
-        # Incorporar lo que llegó
-        if got:
-            results.update(got)
-        # Calcular faltantes
-        done_ids = set(results.keys())
-        remaining = [(i, t) for i, t in remaining if i not in done_ids]
+    attempt = 1
+    while pending and attempt <= MAX_ATTEMPTS:
+        new_pending: list[dict] = []
 
-        print(
-            f"[Batch] Intento {attempt}: recibidos {len(got)} / acumulados {len(results)} / faltan {len(remaining)}"
+        for batch in chunked(pending, BATCH_SIZE):
+            # Mapeo rápido de ids en el batch
+            batch_ids = {item["id"] for item in batch}
+
+            # Llamada al modelo
+            try:
+                corr_list = call_gemini_batch(client, batch)
+            except Exception as e:
+                # Si hubo error de red o rate-limit, reintentar todo el batch
+                # (ver límites y mejores prácticas de reintentos)
+                # https://ai.google.dev/gemini-api/docs/rate-limits
+                corr_list = []
+
+            # Registrar resultados correctos
+            got_ids = set()
+            for c in corr_list:
+                if c.id in batch_ids and isinstance(c.observaciones_final, str):
+                    results[c.id] = c.observaciones_final
+                    got_ids.add(c.id)
+
+            # Re-encolar los que faltan
+            for item in batch:
+                if item["id"] not in got_ids:
+                    new_pending.append(item)
+
+        if new_pending and attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_SECONDS)
+
+        pending = new_pending
+        attempt += 1
+
+    # Construir salida solo para ids procesados
+    if not results:
+        return pl.DataFrame(
+            schema={
+                "id": pl.Int64,
+                "observaciones_original": pl.Utf8,
+                "observaciones_final": pl.Utf8,
+            }
         )
 
-        if not remaining:
-            break
+    df_res = pl.DataFrame(
+        {"id": list(results.keys()), "observaciones_final": list(results.values())}
+    ).with_columns(pl.col("id").cast(pl.Int64))
 
-        if attempt < MAX_ATTEMPTS:
-            time.sleep(RETRY_SLEEP_SEC)
-
-    return results
+    out = (
+        df_in.rename({"observaciones": "observaciones_original"})
+        .join(df_res, on="id", how="inner")
+        .select(["id", "observaciones_original", "observaciones_final"])
+        .sort("id")
+    )
+    return out
 
 
 def main():
-    # 1) Leer observaciones.csv (id, observaciones)
-    if not os.path.exists(INPUT_CSV):
-        raise FileNotFoundError(f"No se encontró {INPUT_CSV} en el repo público.")
-
-    df = pl.read_csv(INPUT_CSV)
-    # columnas esperadas: id, observaciones
-    if not {"id", "observaciones"}.issubset(set(df.columns)):
-        raise KeyError(
-            "Se esperan columnas 'id' y 'observaciones' en observaciones.csv."
-        )
-
-    # Asegurar tipos
-    df = df.select(
-        pl.col("id").cast(pl.Int64),
-        pl.col("observaciones").cast(pl.Utf8).str.strip_chars(),
-    )
-
-    rows = list(zip(df["id"].to_list(), df["observaciones"].to_list()))
-    print(f"Total de observaciones a procesar: {len(rows)}")
-
-    client = _mk_client()
-
-    # 2) Procesar por lotes con reintentos y completitud
-    results: Dict[int, str] = {}
-    for start in range(0, len(rows), BATCH_SIZE):
-        batch = rows[start : start + BATCH_SIZE]
-        print(f"\nProcesando batch {start//BATCH_SIZE + 1} (items: {len(batch)})...")
-        fixed_map = _retry_batch(client, batch)
-        results.update(fixed_map)
-
-    print(f"\nProcesadas por IA: {len(results)} / {len(rows)}")
-
-    # 3) Construir DataFrame SOLO con ids procesados por IA
-    if results:
-        out_df = (
-            df.filter(pl.col("id").is_in(list(results.keys())))
-            .with_columns(
-                pl.col("observaciones").alias("observaciones_original"),
-            )
-            .with_columns(
-                pl.col("id"),
-                pl.col("observaciones_original"),
-                pl.Series(
-                    name="observaciones_final",
-                    values=[
-                        results[i]
-                        for i in df.filter(pl.col("id").is_in(list(results.keys())))[
-                            "id"
-                        ].to_list()
-                    ],
-                ),
-            )
-            .select(["id", "observaciones_original", "observaciones_final"])
-            .sort("id")
-        )
-    else:
-        out_df = pl.DataFrame(
-            {"id": [], "observaciones_original": [], "observaciones_final": []}
-        )
-
-    # 4) Guardar resultado
-    out_df.write_csv(OUTPUT_CSV)
-    print(f"✅ Generado {OUTPUT_CSV} con {out_df.height} filas")
+    df_in = load_input()
+    df_out = process_all(df_in)
+    df_out.write_csv(OUTPUT_CSV)
+    print(f"✅ Generado {OUTPUT_CSV} con {df_out.height} filas procesadas")
 
 
 if __name__ == "__main__":
+    # Requiere GEMINI_API_KEY en el entorno
+    if not os.getenv("GEMINI_API_KEY"):
+        raise RuntimeError("Falta variable de entorno GEMINI_API_KEY")
     main()
