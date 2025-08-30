@@ -25,7 +25,6 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      # 1) Python + cache pip basado en requirements.txt
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@v5
@@ -35,7 +34,6 @@ jobs:
           cache-dependency-path: |
             requirements.txt
 
-      # 2) Cache de la venv completa
       - name: Cache .venv (restore)
         id: cache-venv
         uses: actions/cache@v4
@@ -45,7 +43,6 @@ jobs:
           restore-keys: |
             venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
 
-      # 3) Crear venv e instalar deps solo si no hubo hit
       - name: Create venv & install deps (on cache miss)
         if: steps.cache-venv.outputs.cache-hit != 'true'
         shell: bash
@@ -55,13 +52,11 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.txt
 
-      # 4) Activar la venv para el resto de pasos
       - name: Use venv for subsequent steps
         run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Ejecutar AI de observaciones (Gemini)
-        run: |
-          python ai/observaciones.py
+        run: python ai/observaciones.py
 
       - name: Commit & push data/observaciones_final.csv (si cambió)
         run: |
