@@ -72,8 +72,37 @@ jobs:
             echo "No se generó data/observaciones_final.csv" && exit 1
           fi
 
-      - name: Subir artifact (opcional)
-        uses: actions/upload-artifact@v4
+      - name: Checkout repo privado (dev)
+        uses: actions/checkout@v4
         with:
-          name: observaciones_final
-          path: data/observaciones_final.csv
+          repository: ofrecimientos-docentes/ofrecimientos-docentes-etl # 👈 privado
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }} # 👈 secret en el repo público
+          ref: dev
+          fetch-depth: 0
+          path: repo-privado
+
+      - name: Copiar a data/ai/ofrecimientos_final.csv y commitear (privado)
+        working-directory: repo-privado
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          mkdir -p data/ai
+          cp ../data/observaciones_final.csv data/ai/ofrecimientos_final.csv
+
+          git add data/ai/ofrecimientos_final.csv
+          git commit -m "update data/ai/ofrecimientos_final.csv (dev)" || echo "No changes"
+          git push origin dev
+
+      # Opcional: dispara también por repository_dispatch al repo privado
+      - name: Disparar workflow privado (repository_dispatch)
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          repository: ofrecimientos-docentes/ofrecimientos-docentes-etl
+          event-type: ai-observaciones-final
+          client-payload: |
+            {
+              "branch": "dev",
+              "path": "data/ai/ofrecimientos_final.csv"
+            }
