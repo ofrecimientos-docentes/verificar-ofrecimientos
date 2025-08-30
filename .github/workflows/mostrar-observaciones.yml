@@ -5,6 +5,8 @@ on:
     branches: [dev]
     paths:
       - "observaciones.csv"
+  repository_dispatch:
+    types: [observaciones-updated]
 
 jobs:
   mostrar:
@@ -28,9 +30,8 @@ jobs:
           pip install polars
           python - <<'PY'
           import polars as pl
-          df = pl.read_csv("observaciones.csv")
-          n = df.height
-          print(f"✅ Total de observaciones: {n}")
+          df = pl.read_csv("observaciones.csv")  # id,observaciones
+          print(f"✅ Total de observaciones: {df.height}")
           print("▶ Primeras 5:")
           print(df.head(5))
           PY
