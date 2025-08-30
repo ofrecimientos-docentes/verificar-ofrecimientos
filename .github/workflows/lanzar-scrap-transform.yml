@@ -1,0 +1,22 @@
+name: Lanzar ETL (privado)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Rama del repo privado"
+        required: false
+        default: "dev"
+
+jobs:
+  launch-private:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar al repo privado por repository_dispatch (type)
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          event-type: start-scrap
+          client-payload: |
+            { "branch": "${{ github.event.inputs.branch }}" }
