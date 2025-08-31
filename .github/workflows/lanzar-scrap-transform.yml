@@ -1,16 +1,16 @@
-name: Lanzar scrap + transform (dev)
+name: Lanzar Scraping (dev)
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  lanzar:
+  launch:
     runs-on: ubuntu-latest
     steps:
-      - name: Disparar repo privado
+      - name: Disparar scrap-transform en repo privado
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }} # PAT con acceso al repo privado
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           event-type: run-scrap-transform
           client-payload: |
