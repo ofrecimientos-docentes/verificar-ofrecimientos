@@ -1,6 +1,3 @@
-# core/observaciones/procesar_observaciones.py
-from __future__ import annotations
-
 import os, time, json
 from pathlib import Path
 from typing import Dict, List

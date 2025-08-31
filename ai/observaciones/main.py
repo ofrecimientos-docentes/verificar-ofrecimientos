@@ -1,11 +1,9 @@
-# core/observaciones/observaciones.py
-from __future__ import annotations
-
 from pathlib import Path
 import sys
 
-from .preparar_observaciones import preparar
-from .procesar_observaciones import procesar
+from ai.observaciones.preparar_observaciones import preparar
+from ai.observaciones.procesar_observaciones import procesar
+
 
 INPUT_CSV = Path("data/observaciones.csv")
 
