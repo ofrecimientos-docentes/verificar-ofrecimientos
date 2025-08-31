@@ -3,11 +3,7 @@ name: Procesar observaciones con Gemini (main)
 on:
   repository_dispatch:
     types: [observaciones-updated]
-  workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths:
-      - "data/observaciones.csv"
+  workflow_dispatch:
 
 permissions:
   contents: write
