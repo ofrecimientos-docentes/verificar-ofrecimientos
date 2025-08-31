@@ -1,30 +1,17 @@
-name: Lanzar scrap-transform (dispatch)
+name: Lanzar scrap + transform (dev)
 
 on:
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: "Motivo del disparo"
-        required: false
-        default: "manual"
+  workflow_dispatch: {}
 
 jobs:
-  dispatch:
+  lanzar:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - name: Repository Dispatch to private repo
+      - name: Disparar repo privado
         uses: peter-evans/repository-dispatch@v3
         with:
-          # PAT con permiso repo (o public_repo si fuera público)
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          repository: tu-org/etl-ofrecimientos-docentes
-          event-type: scrap-transform-publicar-observaciones
-          client-payload: >-
-            {
-              "ref": "refs/heads/dev",
-              "reason": "${{ github.event.inputs.reason }}",
-              "caller_repo": "${{ github.repository }}",
-              "caller_sha": "${{ github.sha }}"
-            }
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }} # PAT con acceso al repo privado
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          event-type: run-scrap-transform
+          client-payload: |
+            { "branch": "dev" }

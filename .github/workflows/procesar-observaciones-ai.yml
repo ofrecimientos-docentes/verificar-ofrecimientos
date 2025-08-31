@@ -5,6 +5,8 @@ on:
     branches: [dev]
     paths:
       - "data/observaciones.csv"
+  repository_dispatch:
+    types: [observaciones-updated]
   workflow_dispatch: {}
 
 permissions:
@@ -17,13 +19,13 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
-      - name: Checkout repo público (dev)
+      - name: Checkout público (dev)
         uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
 
-      # Python + cache pip + venv
+      # Cache con requirements.txt del repo público
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@v5
@@ -62,46 +64,38 @@ jobs:
           set -e
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          if [ -f "data/observaciones_final.csv" ]; then
-            git add data/observaciones_final.csv
-            git diff --cached --quiet -- data/observaciones_final.csv || git commit -m "data/observaciones_final.csv (AI)"
-            git push origin dev
-          else
-            echo "❌ No se generó data/observaciones_final.csv"; exit 1
-          fi
+          test -f "data/observaciones_final.csv" || { echo "No se generó data/observaciones_final.csv"; exit 1; }
+          git add data/observaciones_final.csv
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "data/observaciones_final.csv generado (AI)"
+          git push origin dev
 
       - name: Checkout repo privado (dev)
         uses: actions/checkout@v4
         with:
-          repository: etl-ofrecimientos-docentes/etl-ofrecimientos-docentes
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           ref: dev
           fetch-depth: 0
           path: repo-privado
 
-      - name: Copiar al repo privado (data/ai/*.csv) y push
+      - name: Copiar CSVs al privado como data/ai/*
         working-directory: repo-privado
         run: |
-          set -e
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-
           mkdir -p data/ai
+          # Copiamos ambos: el original y el final
           cp ../data/observaciones.csv data/ai/observaciones.csv
           cp ../data/observaciones_final.csv data/ai/observaciones_final.csv
-
           git add data/ai/observaciones.csv data/ai/observaciones_final.csv
-          git diff --cached --quiet || git commit -m "AI: observaciones.csv + observaciones_final.csv"
+          git commit -m "update AI: observaciones.csv + observaciones_final.csv (dev)" || echo "No changes"
           git push origin dev
 
-      - name: Disparar corrección en repo privado (repository_dispatch)
+      - name: Disparar corrección en privado (repository_dispatch)
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          repository: etl-ofrecimientos-docentes/etl-ofrecimientos-docentes
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           event-type: ai-observaciones-final
           client-payload: |
-            {
-              "branch": "dev",
-              "paths": ["data/ai/observaciones.csv", "data/ai/observaciones_final.csv"]
-            }
+            { "branch": "dev", "paths": ["data/ai/observaciones.csv","data/ai/observaciones_final.csv"] }
