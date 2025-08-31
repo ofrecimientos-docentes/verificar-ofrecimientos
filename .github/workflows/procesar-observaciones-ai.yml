@@ -25,8 +25,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          # Usa el GITHUB_TOKEN por defecto para poder pushear
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }} # push en ESTE repo
 
       - name: Set up Python
         id: setup-python
@@ -59,7 +58,8 @@ jobs:
           source .venv/bin/activate
           python ai/observaciones.py
 
-      - name: Commit observaciones_final.csv (root y ai/)
+      # --- COMMIT 1: ESTE REPO (data/observaciones_final.csv) ---
+      - name: Commit en este repo (main)
         shell: bash
         run: |
           git config --global user.name  "github-actions[bot]"
@@ -68,22 +68,48 @@ jobs:
 
           test -f data/observaciones_final.csv || { echo "No generado"; exit 1; }
 
-          # Copia al path solicitado
-          mkdir -p data/ai
-          cp -f data/observaciones_final.csv data/ai/observaciones_final.csv
-
-          # Evita non-fast-forward si hubo cambios
           git pull --rebase origin main || true
+          git add data/observaciones_final.csv
 
-          # Agrega y commitea ambos
-          git add data/observaciones_final.csv data/ai/observaciones_final.csv
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes en este repo"
           else
-            git commit -m "update observaciones_final.csv (AI) [root & data/ai]"
+            git commit -m "update data/observaciones_final.csv (AI)"
             git push origin main
           fi
 
+      # --- COMMIT 2: OTRO REPO (etl-ofrecimientos-docentes -> data/ai/observaciones_final.csv) ---
+      - name: Checkout repo etl-ofrecimientos-docentes (main)
+        uses: actions/checkout@v4
+        with:
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          ref: main
+          fetch-depth: 0
+          path: etl-repo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }} # push en OTRO repo
+
+      - name: Copiar y commitear en etl-ofrecimientos-docentes
+        working-directory: etl-repo
+        shell: bash
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "actions@github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/etl-repo"
+
+          mkdir -p data/ai
+          cp ../data/observaciones_final.csv data/ai/observaciones_final.csv
+          git add data/ai/observaciones_final.csv
+
+          git pull --rebase origin main || true
+
+          if git diff --cached --quiet; then
+            echo "No changes en etl-ofrecimientos-docentes"
+          else
+            git commit -m "update data/ai/observaciones_final.csv (from verificar-ofrecimientos)"
+            git push origin main
+          fi
+
+      # --- DISPATCH luego del commit en el repo privado ---
       - name: Disparar corrección en repo privado
         uses: peter-evans/repository-dispatch@v3
         with:
