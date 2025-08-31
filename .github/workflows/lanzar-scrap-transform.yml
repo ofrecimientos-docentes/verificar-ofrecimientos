@@ -1,4 +1,4 @@
-name: Lanzar Scraping (dev)
+name: Lanzar Scraping
 
 on:
   workflow_dispatch:
@@ -14,4 +14,4 @@ jobs:
           repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           event-type: run-scrap-transform
           client-payload: |
-            { "branch": "dev" }
+            { "branch": "main" }
