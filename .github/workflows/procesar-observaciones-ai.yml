@@ -25,6 +25,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          # Usa el GITHUB_TOKEN por defecto para poder pushear
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         id: setup-python
@@ -57,7 +59,7 @@ jobs:
           source .venv/bin/activate
           python ai/observaciones.py
 
-      - name: Commit observaciones_final.csv
+      - name: Commit observaciones_final.csv (root y ai/)
         shell: bash
         run: |
           git config --global user.name  "github-actions[bot]"
@@ -66,17 +68,19 @@ jobs:
 
           test -f data/observaciones_final.csv || { echo "No generado"; exit 1; }
 
-          # Autentica remoto explícitamente por si checkout no persistió credenciales
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Copia al path solicitado
+          mkdir -p data/ai
+          cp -f data/observaciones_final.csv data/ai/observaciones_final.csv
 
-          # Evita rechazos por non-fast-forward si hubo cambios entre checkout y commit
+          # Evita non-fast-forward si hubo cambios
           git pull --rebase origin main || true
 
-          git add data/observaciones_final.csv
+          # Agrega y commitea ambos
+          git add data/observaciones_final.csv data/ai/observaciones_final.csv
           if git diff --cached --quiet; then
             echo "No changes"
           else
-            git commit -m "update data/observaciones_final.csv (AI)"
+            git commit -m "update observaciones_final.csv (AI) [root & data/ai]"
             git push origin main
           fi
 
