@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          python ai/observaciones.py
+          python ai/observaciones/main.py
 
       # --- COMMIT 1: ESTE REPO (data/observaciones_final.csv) ---
       - name: Commit en este repo (main)
