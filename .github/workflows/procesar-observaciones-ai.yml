@@ -1,0 +1,53 @@
+name: Procesar observaciones con Gemini (dev)
+
+on:
+  repository_dispatch:
+    types: [observaciones-updated]
+  workflow_dispatch: {}
+  push:
+    branches: [dev]
+    paths:
+      - "data/observaciones.csv"
+
+jobs:
+  procesar:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout público (dev)
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install google-genai polars pydantic
+
+      - name: Ejecutar AI
+        run: python ai/observaciones.py
+
+      - name: Commit observaciones_final.csv
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          test -f data/observaciones_final.csv || { echo "No generado"; exit 1; }
+          git add data/observaciones_final.csv
+          git commit -m "update data/observaciones_final.csv (AI)" || echo "No changes"
+          git push origin dev
+
+      - name: Disparar corrección en repo privado
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          event-type: ai-observaciones-final
