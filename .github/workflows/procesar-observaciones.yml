@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -19,6 +23,9 @@ jobs:
     steps:
       - name: Checkout repo (verificar-ofrecimientos)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,20 +51,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Commit & push observaciones_final.csv en este repo
+      - name: Commit & push observaciones_final.csv en este repo (rebase-safe)
         run: |
           if [ ! -f data/observaciones_final.csv ]; then
             echo "ERROR: data/observaciones_final.csv no existe" >&2
             exit 1
           fi
+          BRANCH="${GITHUB_REF_NAME:-main}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH" || git checkout -b "$BRANCH"
+          git pull --rebase origin "$BRANCH" || true
           git add data/observaciones_final.csv
           if git diff --cached --quiet; then
             echo "Sin cambios para commitear"
           else
             git commit -m "chore: update observaciones_final.csv desde procesar-observaciones (${GITHUB_SHA::7})"
-            git push origin HEAD
+            # Reintento en caso de carreras: rebase y push otra vez
+            git push origin HEAD:"$BRANCH" || {
+              git pull --rebase origin "$BRANCH" && git push origin HEAD:"$BRANCH"
+            }
           fi
 
       - name: Checkout repo destino (etl-ofrecimientos-docentes)
@@ -66,6 +80,8 @@ jobs:
           repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
           path: etl-repo
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          fetch-depth: 0
+          ref: main
 
       - name: Copiar observaciones_final.csv al repo destino
         run: |
@@ -76,16 +92,17 @@ jobs:
           mkdir -p etl-repo/data/ai
           cp data/observaciones_final.csv etl-repo/data/ai/observaciones_final.csv
 
-      - name: Commit & push observaciones_final.csv al repo destino
+      - name: Commit & push observaciones_final.csv al repo destino (rebase-safe)
         working-directory: etl-repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main || git checkout -b main
+          git pull --rebase origin main || true
           git add data/ai/observaciones_final.csv
           if git diff --cached --quiet; then
             echo "Sin cambios para commitear"
           else
-            default_branch="main"
             git commit -m "chore: update data/ai/observaciones_final.csv desde verificar-ofrecimientos (${GITHUB_SHA::7})"
-            git push origin HEAD:${default_branch}
+            git push origin HEAD:main || { git pull --rebase origin main && git push origin HEAD:main; }
           fi
