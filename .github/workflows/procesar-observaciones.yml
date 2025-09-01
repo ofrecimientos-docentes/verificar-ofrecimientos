@@ -1,0 +1,91 @@
+name: procesar-observaciones
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "data/observaciones.csv"
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repo (verificar-ofrecimientos)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies (from requirements.txt)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar procesamiento de observaciones
+        run: |
+          python -m ai.observaciones.main
+
+      - name: Publicar observaciones_final.csv como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: observaciones-final
+          path: data/observaciones_final.csv
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Commit & push observaciones_final.csv en este repo
+        run: |
+          if [ ! -f data/observaciones_final.csv ]; then
+            echo "ERROR: data/observaciones_final.csv no existe" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/observaciones_final.csv
+          if git diff --cached --quiet; then
+            echo "Sin cambios para commitear"
+          else
+            git commit -m "chore: update observaciones_final.csv desde procesar-observaciones (${GITHUB_SHA::7})"
+            git push origin HEAD
+          fi
+
+      - name: Checkout repo destino (etl-ofrecimientos-docentes)
+        uses: actions/checkout@v4
+        with:
+          repository: ofrecimientos-docentes/etl-ofrecimientos-docentes
+          path: etl-repo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+
+      - name: Copiar observaciones_final.csv al repo destino
+        run: |
+          if [ ! -f data/observaciones_final.csv ]; then
+            echo "ERROR: data/observaciones_final.csv no existe" >&2
+            exit 1
+          fi
+          mkdir -p etl-repo/data/ai
+          cp data/observaciones_final.csv etl-repo/data/ai/observaciones_final.csv
+
+      - name: Commit & push observaciones_final.csv al repo destino
+        working-directory: etl-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ai/observaciones_final.csv
+          if git diff --cached --quiet; then
+            echo "Sin cambios para commitear"
+          else
+            default_branch="main"
+            git commit -m "chore: update data/ai/observaciones_final.csv desde verificar-ofrecimientos (${GITHUB_SHA::7})"
+            git push origin HEAD:${default_branch}
+          fi
