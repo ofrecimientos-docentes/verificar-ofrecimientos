@@ -2,7 +2,8 @@ name: Check ofrecimientos & trigger ETL
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # cada 5 minutos (UTC)
+    # cada 5 minutos, Lunes–Viernes, 09–17 UTC (equivale a 06–14 ART)
+    - cron: "*/5 9-17 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Job guardián: solo deja pasar si es L-V y 06–14 (hora de Argentina)
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.timeguard.outputs.ok }}
+    steps:
+      - name: Time window guard (ART)
+        id: timeguard
+        shell: bash
+        run: |
+          DOW=$(TZ=America/Argentina/San_Juan date +%u)  # 1=Lun ... 7=Dom
+          HOUR=$(TZ=America/Argentina/San_Juan date +%H) # 00..23
+          if [ "$DOW" -ge 1 ] && [ "$DOW" -le 5 ] && [ "$HOUR" -ge 6 ] && [ "$HOUR" -lt 15 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Dentro de la ventana (ART) - DOW=$DOW HOUR=$HOUR"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Fuera de la ventana (ART) - DOW=$DOW HOUR=$HOUR"
+          fi
+
   check-and-trigger:
+    needs: guard
+    if: needs.guard.outputs.ok == 'true'
     runs-on: ubuntu-latest
 
     env:
