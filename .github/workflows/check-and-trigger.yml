@@ -14,7 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Job guardián: solo deja pasar si es L-V y 06–14 (hora de Argentina)
   guard:
     runs-on: ubuntu-latest
     outputs:
@@ -40,8 +39,13 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      STATE_FILE: .state_ofrec_hash
-      PARQUET_PATH: ofrecimientos.parquet
+      # Ofrecimientos
+      STATE_FILE_OFREC: .state_ofrec_hash
+      OFREC_PATH: ofrecimientos.parquet
+      # Avisos (core.verificar_avisos genera ESTE archivo)
+      STATE_FILE_AVISOS: .state_avisos_hash
+      AVISOS_PATH: data/avisos.csv
+      # Evento para el workflow "General"
       EVENT_TYPE: ofrecimientos-changed
       TARGET_OWNER: ofrecimientos-docentes
       TARGET_REPO: etl-ofrecimientos-docentes
@@ -65,61 +69,108 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run scraper/verifier
+      # -------- Verificación de ofrecimientos --------
+      - name: Run scraper/verifier (ofrecimientos)
         run: |
           python - << 'PY'
-          import sys
           from verify import main
           if __name__ == "__main__":
               main()
           PY
 
-      - name: Compute current hash
-        id: hash
+      - name: Compute current hash (ofrecimientos)
+        id: hash_ofrec
         run: |
-          if [ ! -f "${PARQUET_PATH}" ]; then
-            echo "Parquet no encontrado: ${PARQUET_PATH}"
+          if [ ! -f "${OFREC_PATH}" ]; then
+            echo "Parquet no encontrado: ${OFREC_PATH}"
             exit 1
           fi
-          CURR_HASH=$(sha256sum "${PARQUET_PATH}" | awk '{print $1}')
+          CURR_HASH=$(sha256sum "${OFREC_PATH}" | awk '{print $1}')
           echo "curr_hash=${CURR_HASH}" >> $GITHUB_OUTPUT
 
-      - name: Load previous hash (if any)
-        id: prev
+      - name: Load previous hash (ofrecimientos)
+        id: prev_ofrec
         run: |
-          if [ -f "${STATE_FILE}" ]; then
-            PREV_HASH=$(cat "${STATE_FILE}")
+          if [ -f "${STATE_FILE_OFREC}" ]; then
+            PREV_HASH=$(cat "${STATE_FILE_OFREC}")
           else
             PREV_HASH=""
           fi
           echo "prev_hash=${PREV_HASH}" >> $GITHUB_OUTPUT
 
+      # -------- Verificación de avisos --------
+      - name: Run verifier (avisos)
+        run: |
+          python -m core.verificar_avisos  # genera data/avisos.csv
+
+      - name: Compute current hash (avisos)
+        id: hash_avisos
+        run: |
+          if [ ! -f "${AVISOS_PATH}" ]; then
+            echo "Archivo de avisos no encontrado: ${AVISOS_PATH}"
+            exit 1
+          fi
+          CURR_HASH=$(sha256sum "${AVISOS_PATH}" | awk '{print $1}')
+          echo "curr_hash=${CURR_HASH}" >> $GITHUB_OUTPUT
+
+      - name: Load previous hash (avisos)
+        id: prev_avisos
+        run: |
+          if [ -f "${STATE_FILE_AVISOS}" ]; then
+            PREV_HASH=$(cat "${STATE_FILE_AVISOS}")
+          else
+            PREV_HASH=""
+          fi
+          echo "prev_hash=${PREV_HASH}" >> $GITHUB_OUTPUT
+
+      # -------- Detección de cambios y persistencia --------
       - name: Detect changes & persist state (on main)
         id: detect
+        shell: bash
         run: |
-          if [ "${{ steps.hash.outputs.curr_hash }}" = "${{ steps.prev.outputs.prev_hash }}" ] && [ -n "${{ steps.prev.outputs.prev_hash }}" ]; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Sin cambios en el Parquet."
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "${{ steps.hash.outputs.curr_hash }}" > "${STATE_FILE}"
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git pull --rebase origin main || true
-            git add "${STATE_FILE}" || true
-            git commit -m "update ofrecimientos hash" || echo "Nada para commitear"
-            git push origin main || echo "No se pudo pushear (ok si no hay cambios reales)"
+          changed_ofrec=false
+          changed_avisos=false
+
+          if [ "${{ steps.hash_ofrec.outputs.curr_hash }}" != "${{ steps.prev_ofrec.outputs.prev_hash }}" ] || [ -z "${{ steps.prev_ofrec.outputs.prev_hash }}" ]; then
+            changed_ofrec=true
+            echo "${{ steps.hash_ofrec.outputs.curr_hash }}" > "${STATE_FILE_OFREC}"
           fi
 
+          if [ "${{ steps.hash_avisos.outputs.curr_hash }}" != "${{ steps.prev_avisos.outputs.prev_hash }}" ] || [ -z "${{ steps.prev_avisos.outputs.prev_hash }}" ]; then
+            changed_avisos=true
+            echo "${{ steps.hash_avisos.outputs.curr_hash }}" > "${STATE_FILE_AVISOS}"
+          fi
+
+          echo "changed_ofrec=${changed_ofrec}"   >> $GITHUB_OUTPUT
+          echo "changed_avisos=${changed_avisos}" >> $GITHUB_OUTPUT
+
+          if [ "${changed_ofrec}" = "true" ] || [ "${changed_avisos}" = "true" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "${STATE_FILE_OFREC}" "${STATE_FILE_AVISOS}" 2>/dev/null || true
+            git commit -m "update state hashes (ofrecimientos/avisos)" || echo "Nada para commitear"
+            git push origin main || echo "No se pudo pushear (ok si no hay cambios reales)"
+            echo "changed_any=true" >> $GITHUB_OUTPUT
+          else
+            echo "Sin cambios en ofrecimientos ni avisos."
+            echo "changed_any=false" >> $GITHUB_OUTPUT
+          fi
+
+      # -------- Disparo del ETL --------
       - name: Trigger ETL via repository_dispatch
-        if: steps.detect.outputs.changed == 'true'
+        if: steps.detect.outputs.changed_any == 'true'
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          echo "Disparando evento $EVENT_TYPE a ${TARGET_OWNER}/${TARGET_REPO}"
+          echo "Disparando evento ${EVENT_TYPE} a ${TARGET_OWNER}/${TARGET_REPO}"
           curl -sS -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/${TARGET_OWNER}/${TARGET_REPO}/dispatches \
-            -d "{\"event_type\":\"${EVENT_TYPE}\",\"client_payload\":{\"parquet_hash\":\"${{ steps.hash.outputs.curr_hash }}\"}}"
+            -d "{\"event_type\":\"${EVENT_TYPE}\",\"client_payload\":{
+                  \"ofrec_hash\":\"${{ steps.hash_ofrec.outputs.curr_hash }}\",
+                  \"avisos_hash\":\"${{ steps.hash_avisos.outputs.curr_hash }}\",
+                  \"changed_ofrec\":\"${{ steps.detect.outputs.changed_ofrec }}\",
+                  \"changed_avisos\":\"${{ steps.detect.outputs.changed_avisos }}\"
+                }}"
