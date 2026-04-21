@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 from urllib.parse import urljoin
 from html import unescape
@@ -5,6 +6,9 @@ from html import unescape
 import requests
 from bs4 import BeautifulSoup
 import polars as pl
+
+requests.packages.urllib3.disable_warnings()
+warnings.filterwarnings("ignore")
 
 
 URL = "https://educacion.sanjuan.edu.ar/mesj/LlamadosdePrensa/OfrecimientosdeHsC%C3%A1tedraCargosaCubrir.aspx"
@@ -19,7 +23,7 @@ def fetch_html(url: str) -> str:
         "Chrome/125.0 Safari/537.36",
         "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
     }
-    resp = requests.get(url, headers=headers, timeout=30)
+    resp = requests.get(url, headers=headers, timeout=30, verify=False)
     resp.raise_for_status()
     # La página viene en UTF-8; BeautifulSoup manejará bien los acentos.
     return resp.text

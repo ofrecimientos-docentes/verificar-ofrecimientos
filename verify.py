@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -9,6 +10,9 @@ import polars as pl
 import requests
 from bs4 import BeautifulSoup
 import json5
+
+requests.packages.urllib3.disable_warnings()
+warnings.filterwarnings("ignore")
 
 DAYS = 7
 URL = (
@@ -34,7 +38,7 @@ def _get_hidden(soup: BeautifulSoup, name: str) -> str:
 
 
 def _bootstrap_viewstate() -> tuple[str, str]:
-    resp = requests.get(URL, timeout=30)
+    resp = requests.get(URL, timeout=30, verify=False)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     viewstate = _get_hidden(soup, "__VIEWSTATE")
