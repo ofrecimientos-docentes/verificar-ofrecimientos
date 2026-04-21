@@ -70,7 +70,7 @@ async def _fetch_date(
     }
     params = {"_dc": str(int(time.time() * 1000))}
     async with session.post(
-        URL, params=params, data=payload, headers=HEADERS, timeout=30
+        URL, params=params, data=payload, headers=HEADERS, timeout=30, ssl=False
     ) as resp:
         text = await resp.text()
 
