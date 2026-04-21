@@ -40,6 +40,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install CA certificates
+        run: |
+          apt-get update && apt-get install -y ca-certificates
+
       - name: Run scraper/verifier (ofrecimientos)
         run: |
           python - << 'PY'
